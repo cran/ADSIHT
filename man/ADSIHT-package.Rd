@@ -5,7 +5,7 @@
 \alias{ADSIHT-package}
 \title{ADSIHT: Adaptive Double Sparse Iterative Hard Thresholding}
 \description{
-Solving the high-dimensional double sparse linear regression via iterative hard thresholding algorithm. For more details, please see Zhang et al. (2024, \doi{10.48550/arXiv.2305.04182}).
+Solving high-dimensional double sparse linear regression via an iterative hard thresholding algorithm. Furthermore, the method is extended to jointly estimate multiple graphical models. For more details, please see \url{https://www.jmlr.org/papers/v25/23-0653.html} and \doi{10.48550/arXiv.2503.18722}.
 }
 \author{
 \strong{Maintainer}: Yanhang Zhang \email{zhangyh98@ruc.edu.cn}

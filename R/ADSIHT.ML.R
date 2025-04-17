@@ -26,10 +26,12 @@
 #' Default: \code{eta = 0.8}.
 #' @param max_iter A parameter that controls the maximum number of line search, ignored if \code{OLS} is employed.
 #' @param method Whether \code{ols} (default) or \code{linesearch} method should be employed.
+#' @param center A boolean value indicating whether centralization is required. Default: \code{center = TRUE}.
+#' @param scale A positive value to control the column-wise L2 norm of each observation matrix. Default: \code{scale=1}.
 #'
 #' @return A \code{list} object comprising:
 #' \item{beta}{A \eqn{p}-by-\code{length(s0)} matrix of coefficients, stored in column format.}
-#' \item{intercept}{A \code{length(s0)} vector of intercepts}.
+#' \item{intercept}{A \code{length(s0)} vector of intercepts.}
 #' \item{lambda}{A \code{length(s0)} vector of threshold values}
 #' \item{A_out}{The selected variables given threshold value in \code{lambda}.}
 #' \item{ic}{The values of the specified criterion for each fitted model given threshold \code{lamdba}.}
@@ -71,7 +73,9 @@ ADSIHT.ML <- function(x_list, y_list, group_list,
                       coef2 = 1,
                       eta = 0.8,
                       max_iter = 20,
-                      method = "ols")
+                      method = "ols",
+                      center = TRUE,
+                      scale = 1)
 {
   if (length(x_list) != length(y_list)) stop("The length of x_list should be the same with y_list")
   K <- length(x_list)
@@ -79,48 +83,120 @@ ADSIHT.ML <- function(x_list, y_list, group_list,
   n <- sapply(x_list, function(x) nrow(x))
   if (missing(weight)) weight <- rep(1, sum(n))
   if (missing(group_list)) group <- rep(1:p, K)
-  y_mean <- lapply(y_list, mean)
-  y_list2 <- lapply(1:K, function(i) y_list[[i]]-y_mean[[i]])
-  y_norm <- lapply(y_list2, function(x) {
-    sqrt(sum(x^2))
-  })
-  x_mean <- lapply(x_list, function(x) {
-    apply(x, 2, mean)
-  })
-  x_list2 <- lapply(1:K, function(i) x_list[[i]]-x_mean[[i]])
-  x_norm <- lapply(x_list2, function(x) {
-    apply(x, 2, function(col) sqrt(sum(col^2)))
-  })
-  y_new <- unlist(lapply(1:K, function(i) y_list2[[i]]/y_norm[[i]]))
-  x_new <- as.matrix(Matrix::bdiag(lapply(1:K, function(i) t({apply(x_list2[[i]], 1, function(x) {x/x_norm[[i]]})}))))
-  orderGi <- order(group)
-  x_new <- x_new[, orderGi]
-  index <- seq(1, K*p, by = K)-1
-  if (missing(s0)) {
-    s0 <- max(table(group))^(seq(1, L-1, length.out = L)/(L-1))
+
+  #
+  # if need centralization
+  #
+
+  if(center == TRUE){
+    y_mean <- lapply(y_list, mean)
+    y_list2 <- lapply(1:K, function(i) y_list[[i]]-y_mean[[i]])
+    y_norm <- lapply(y_list2, function(x) { sqrt(sum(x^2)) })
+    x_mean <- lapply(x_list, function(x) { apply(x, 2, mean) })
+    x_list2 <- lapply(1:K, function(i) x_list[[i]]-x_mean[[i]])
+    x_norm <- lapply(x_list2, function(x) {
+      apply(x, 2, function(col) sqrt(sum(col^2)))
+    })
+
+    if(scale==1){
+      y_new <- unlist(lapply(1:K, function(i) y_list2[[i]]/y_norm[[i]]))
+      x_new <- as.matrix(  Matrix::bdiag(  lapply(1:K, function(i)
+        t({apply(x_list2[[i]], 1, function(x) {x/x_norm[[i]]} )} )  )  )  )
+    }else{
+      y_new = unlist( y_list2 )
+      x_new <- as.matrix(  Matrix::bdiag(  lapply(1:K, function(i)
+        t({apply(x_list2[[i]], 1, function(x) {x/x_norm[[i]]})})  )  )  )* scale
+    }
+    orderGi <- order(group)
+    x_new <- x_new[, orderGi]
+    index <- seq(1, K*p, by = K)-1
+    if (missing(s0)) {
+      s0 <- max(table(group))^(seq(1, L-1, length.out = L)/(L-1))
+    }
+    inverse_order <- match(1:length(group), orderGi)
+    ic.type <- match.arg(ic.type)
+    ic_type <- switch(ic.type,
+                      "loss" = 0,
+                      "dsic" = 1
+    )
+    if (method == "ols") {
+      method = TRUE
+    } else {
+      method = FALSE
+    }
+    res <- DSIHT_ML_Cpp(x_new, y_new, weight = weight, sequence = s0, ic_type = ic_type,
+                        ic_scale = ic.scale, kappa = kappa, g_index = index, ic_coef = ic.coef,
+                        coef1 = coef1, coef2 = coef2, eta = eta, max_iter = max_iter,
+                        method = method, nor = FALSE)
+    if(scale==1){
+      beta <- apply(res$beta[inverse_order, ], 2, function(x) {
+        temp <- rep(unlist(y_norm), each = p)
+        x/unlist(x_norm)*temp
+      })
+    }else{
+      beta <- apply(res$beta[inverse_order, ], 2, function(x) {
+        x/unlist(x_norm)*scale })
+    }
+    intercept <- unlist(y_mean) - sapply(1:K, function(i) {
+      ind <- (1+(i-1)*p):(i*p)
+      unlist(x_mean)[ind] %*% beta[ind, ]
+    })
+    res$beta <- split(beta, col(beta))
+    res$intercept <- split(intercept, row(intercept))
+    res$A_out <- apply(beta, 2, function(x) {which(x!=0)})
+
+  }else{
+
+    #
+    # if DO NOT NEED centralization
+    #
+
+    y_norm <- lapply(y_list, function(x) { sqrt(sum(x^2)) })
+    x_norm <- lapply(x_list, function(x) {
+      apply(x, 2, function(col) sqrt(sum(col^2)))
+    })
+
+    if(scale==1){
+      y_new <- unlist(lapply(1:K, function(i) y_list[[i]]/y_norm[[i]]))
+      x_new <- as.matrix(  Matrix::bdiag(  lapply(1:K, function(i)
+        t({apply(x_list[[i]], 1, function(x) {x/x_norm[[i]]} )} )  )  )  )
+    }else{
+      y_new = unlist( y_list )
+      x_new <- as.matrix(  Matrix::bdiag(  lapply(1:K, function(i)
+        t({apply(x_list[[i]], 1, function(x) {x/x_norm[[i]]})})  )  )  )* scale
+    }
+    orderGi <- order(group)
+    x_new <- x_new[, orderGi]
+    index <- seq(1, K*p, by = K)-1
+    if (missing(s0)) {
+      s0 <- max(table(group))^(seq(1, L-1, length.out = L)/(L-1))
+    }
+    inverse_order <- match(1:length(group), orderGi)
+    ic.type <- match.arg(ic.type)
+    ic_type <- switch(ic.type,
+                      "loss" = 0,
+                      "dsic" = 1
+    )
+    if (method == "ols") {
+      method = TRUE
+    } else {
+      method = FALSE
+    }
+    res <- DSIHT_ML_Cpp(x_new, y_new, weight = weight, sequence = s0, ic_type = ic_type,
+                        ic_scale = ic.scale, kappa = kappa, g_index = index, ic_coef = ic.coef,
+                        coef1 = coef1, coef2 = coef2, eta = eta, max_iter = max_iter,
+                        method = method, nor = FALSE)
+    if(scale==1){
+      beta <- apply(res$beta[inverse_order, ], 2, function(x) {
+        temp <- rep(unlist(y_norm), each = p)
+        x/unlist(x_norm)*temp
+      })
+    }else{
+      beta <- apply(res$beta[inverse_order, ], 2, function(x) {
+        x/unlist(x_norm)*scale })
+    }
+    res$beta <- split(beta, col(beta))
+    res$A_out <- apply(beta, 2, function(x) {which(x!=0)})
   }
-  inverse_order <- match(1:length(group), orderGi)
-  ic.type <- match.arg(ic.type)
-  ic_type <- switch(ic.type,
-                    "loss" = 0,
-                    "dsic" = 1
-  )
-  if (method == "ols") {
-    method = TRUE
-  } else {
-    method = FALSE
-  }
-  res <- DSIHT_ML_Cpp(x_new, y_new, weight = weight, sequence = s0, ic_type = ic_type, ic_scale = ic.scale, kappa = kappa, g_index = index, ic_coef = ic.coef, coef1 = coef1, coef2 = coef2, eta = eta, max_iter = max_iter, method = method, nor = FALSE)
-  beta <- apply(res$beta[inverse_order, ], 2, function(x) {
-    temp <- rep(unlist(y_norm), each = p)
-    x/unlist(x_norm)*temp
-  })
-  intercept <- unlist(y_mean) - sapply(1:K, function(i) {
-    ind <- (1+(i-1)*p):(i*p)
-    unlist(x_mean)[ind] %*% beta[ind, ]
-  })
-  res$beta <- split(beta, col(beta))
-  res$intercept <- split(intercept, row(intercept))
-  res$A_out <- apply(beta, 2, function(x) {which(x!=0)})
   return(res)
 }

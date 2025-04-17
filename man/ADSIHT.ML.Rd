@@ -19,7 +19,9 @@ ADSIHT.ML(
   coef2 = 1,
   eta = 0.8,
   max_iter = 20,
-  method = "ols"
+  method = "ols",
+  center = TRUE,
+  scale = 1
 )
 }
 \arguments{
@@ -61,11 +63,15 @@ Default: \code{eta = 0.8}.}
 \item{max_iter}{A parameter that controls the maximum number of line search, ignored if \code{OLS} is employed.}
 
 \item{method}{Whether \code{ols} (default) or \code{linesearch} method should be employed.}
+
+\item{center}{A boolean value indicating whether centralization is required. Default: \code{center = TRUE}.}
+
+\item{scale}{A positive value to control the column-wise L2 norm of each observation matrix. Default: \code{scale=1}.}
 }
 \value{
 A \code{list} object comprising:
 \item{beta}{A \eqn{p}-by-\code{length(s0)} matrix of coefficients, stored in column format.}
-\item{intercept}{A \code{length(s0)} vector of intercepts}.
+\item{intercept}{A \code{length(s0)} vector of intercepts.}
 \item{lambda}{A \code{length(s0)} vector of threshold values}
 \item{A_out}{The selected variables given threshold value in \code{lambda}.}
 \item{ic}{The values of the specified criterion for each fitted model given threshold \code{lamdba}.}

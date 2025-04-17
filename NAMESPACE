@@ -2,6 +2,7 @@
 
 export(ADSIHT)
 export(ADSIHT.ML)
+export(MIGHT)
 export(gen.data)
 import(Rcpp)
 importFrom(stats,rbinom)
